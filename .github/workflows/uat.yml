@@ -1,0 +1,58 @@
+name: Build UUTube front-end uat
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches: ['uat']
+
+jobs:
+  if_merged:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2.2.4
+        with:
+          version: 7.26.3
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Configure AWS Credentials For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-east-1
+
+      - name: Build
+        run: |
+          pnpm install
+          pnpm build:uat
+          aws s3 sync ./dist s3://uat.care.indicaid-fe
+          aws cloudfront create-invalidation --distribution-id E3ODQL2VU0YJ0U --paths "/*"
+
+      - name: Post to a Slack channel
+        id: slack
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          # Slack channel id, channel name, or user id to post message.
+          # See also: https://api.slack.com/methods/chat.postMessage#channels
+          channel-id: 'C057VEKCDL5'
+          # For posting a rich message using Block Kit
+          payload: |
+            {
+              "text": "actor:${{ github.actor }}\n${{ github.workflow }} build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
